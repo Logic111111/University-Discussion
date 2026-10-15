@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  
+  body {
+    background-color: #090A0F;
+    color: #E2E8F0;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  code, pre, kbd, samp {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090A0F;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 240, 255, 0.4);
+}
+
+/* Cyber-industrial precision effects */
+.bg-grid-pattern {
+  background-size: 24px 24px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+.bg-dot-matrix {
+  background-image: radial-gradient(rgba(0, 240, 255, 0.12) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.glass-panel {
+  background: rgba(14, 17, 24, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-glow {
+  background: rgba(14, 17, 24, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  box-shadow: 0 0 25px -5px rgba(0, 240, 255, 0.15);
+}
+
+.border-glow-cyan {
+  border-color: rgba(0, 240, 255, 0.3);
+  box-shadow: 0 0 15px -3px rgba(0, 240, 255, 0.2);
+}
+
+.border-glow-amber {
+  border-color: rgba(255, 184, 0, 0.3);
+  box-shadow: 0 0 15px -3px rgba(255, 184, 0, 0.2);
+}
+
+.border-glow-emerald {
+  border-color: rgba(16, 185, 129, 0.3);
+  box-shadow: 0 0 15px -3px rgba(16, 185, 129, 0.2);
+}
+
+/* Oscilloscope CRT scanline overlay */
+.oscilloscope-screen {
+  background: radial-gradient(circle at 50% 50%, #0d1e1c 0%, #060e0d 100%);
+  position: relative;
+}
+
+.oscilloscope-screen::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+  background-size: 100% 4px;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* Terminal Glow text */
+.text-cyan-glow {
+  color: #00F0FF;
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+}
+
+.text-amber-glow {
+  color: #FFB800;
+  text-shadow: 0 0 10px rgba(255, 184, 0, 0.5);
+}
+
+.text-emerald-glow {
+  color: #10B981;
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
