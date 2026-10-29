@@ -1,239 +1,207 @@
-import React, { useState } from 'react';
-import { TelemetryHeader } from './components/TelemetryHeader';
-import { SplitEditor } from './components/Editor/SplitEditor';
-import { AIPilotSidebar } from './components/Sidebar/AIPilotSidebar';
+import { useCallback, useEffect, useState } from 'react';
+import { SiteHeader } from './components/SiteHeader';
+import { Library } from './components/Library';
+import { Reader } from './components/Reader';
+import { Studio } from './components/Editor/Studio';
 import { StudentCampusHub } from './components/Social/StudentCampusHub';
-import { PreviewPane } from './components/Editor/PreviewPane';
-import { CommandPalette } from './components/CommandPalette';
+import { CommandPalette, PaletteAction } from './components/CommandPalette';
 import { PublishModal } from './components/Modals/PublishModal';
 import { IeeeExportModal } from './components/Modals/IeeeExportModal';
-import { PipelineModal } from './components/Modals/PipelineModal';
-import { CiteModal } from './components/Modals/CiteModal';
-import { 
-  mockArticles, 
-  mockStudentIdeas, 
-  mockCurrentUser, 
-  mockCollaborators 
-} from './data/mockData';
-import { Article, BranchType, ViewMode, StudentIdeaPost } from './types';
+import { CiteModal, CiteSource } from './components/Modals/CiteModal';
+import { EmptyState } from './components/ui';
+import { useStore } from './store';
+import { articleUrl } from './lib/util';
+import { Article, Route, StudentIdeaPost } from './types';
 
-export const App: React.FC = () => {
-  // State
-  const [currentArticle, setCurrentArticle] = useState<Article>(mockArticles[0]);
-  const [viewMode, setViewMode] = useState<ViewMode>('editor');
-  const [studentIdeas, setStudentIdeas] = useState<StudentIdeaPost[]>(mockStudentIdeas);
+function parseHash(hash: string): Route {
+  const [, view, id] = hash.replace(/^#/, '').split('/');
+  if (view === 'article' && id) return { view: 'reader', id: decodeURIComponent(id) };
+  if (view === 'studio') return { view: 'studio', id: id ? decodeURIComponent(id) : undefined };
+  if (view === 'campus') return { view: 'campus' };
+  return { view: 'library' };
+}
 
-  // Markdown content state for the authoring pane
-  const [markdownContent, setMarkdownContent] = useState<string>(`# High-Efficiency Gallium Nitride (GaN) Inverters for 400V Grid-Tied Solar Microgrids
+const toHash = (r: Route) =>
+  r.view === 'reader' ? `#/article/${encodeURIComponent(r.id)}`
+  : r.view === 'studio' ? (r.id ? `#/studio/${encodeURIComponent(r.id)}` : '#/studio')
+  : `#/${r.view}`;
 
-**Author:** Evelyn Chen (@echen_power) • MIT Power Electronics Lab
-**Standards:** IEEE 1547-2018 §6.4.1 | IEC 61508 SIL-3
-**Target:** 2.5 kW Nominal • 400V DC Bus • 100 kHz - 250 kHz Carrier Frequency
+type Dialog = null | 'palette' | 'publish' | 'cite' | 'ieee';
 
----
+export default function App() {
+  const store = useStore();
+  const [route, setRoute] = useState<Route>(() => parseHash(location.hash));
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [citeSource, setCiteSource] = useState<CiteSource>();
 
-## 1. Introduction: Escaping the Silicon Barrier
-Power conversion density in solar microgrids has historically been choked by the reverse recovery charge (Q_rr) and output capacitance (C_oss) of Silicon Superjunction MOSFETs. When switching at frequencies above 40 kHz, dynamic switching losses dominate over conduction losses, demanding bulky toroidal inductors and forced-air cooling heatsinks.
+  useEffect(() => {
+    const onHash = () => setRoute(parseHash(location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
-GaN high-electron-mobility transistors (HEMTs) on Silicon substrates exhibit zero reverse recovery (Q_rr = 0) and low gate charge (Q_g < 6 nC). This permits stepping up the pulse-width modulation (PWM) carrier frequency from traditional 20 kHz to **100 kHz - 250 kHz**, drastically slashing magnetic core volume by **68%**.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setDialog((d) => (d === 'palette' ? null : 'palette'));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
----
+  const routeId = 'id' in route ? route.id : undefined;
+  const article = routeId ? store.articles.find((a) => a.id === routeId) : undefined;
 
-## 2. Interactive Power Stage Schematic
-<CircuitSchematicWidget title="H-Bridge GaN Power Stage with LC Filter Topology" />
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [route.view, routeId]);
+  useEffect(() => {
+    const page = article?.title || { library: 'Library', studio: 'Studio', campus: 'Campus ideas', reader: 'Not found' }[route.view];
+    document.title = `${page} | Nexus Eng`;
+  }, [route.view, article?.title]);
 
-Click the active probe nodes on the hardware schematic above to inspect operating voltages, RMS currents, and thermal junction temperatures measured on our 400V test bench.
+  const go = (r: Route) => { location.hash = toHash(r); };
+  const closeDialog = useCallback(() => setDialog(null), []);
 
----
-
-## 3. Real-Time Oscilloscope & Signal Telemetry
-<OscilloscopeWidget frequency={100} voltage={400} />
-
-- **CH1 (Cyan):** Switch-node PWM voltage (100 kHz, 400V pk-to-pk)
-- **CH2 (Amber):** Filtered 60Hz Sinusoidal Grid Output (120V RMS, THD < 1.5%)
-- **CH3 (Emerald):** Triangular inductor ripple current (12.5A peak)
-
----
-
-## 4. Switching Loss Mathematical Formulation
-<LatexStandardsBlock equation="eq-p-sw" standard="std-ieee1547" />
-
-The dynamic switching loss is governed by:
-P_sw = f_sw * V_dc * I_pk * ((t_r + t_f)/2) + f_sw * C_oss * V_dc^2
-
-Dimensional analysis proves LHS [W] is dimensionally homogeneous with RHS [Hz]·[V]·[A]·[s] = [W].
-
----
-
-## 5. DSP Firmware Control Loop & FPGA Bitstream
-<HardwareSandbox />
-
-Execute the embedded proportional-resonant controller or synthesize the Space-Vector PWM RTL bitstream directly inside the sandbox.`);
-
-  // Modals & Drawers
-  const [isAIPilotOpen, setIsAIPilotOpen] = useState<boolean>(true);
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
-  const [isPublishModalOpen, setIsPublishModalOpen] = useState<boolean>(false);
-  const [isIeeeModalOpen, setIsIeeeModalOpen] = useState<boolean>(false);
-  const [isPipelineModalOpen, setIsPipelineModalOpen] = useState<boolean>(false);
-  const [isCiteModalOpen, setIsCiteModalOpen] = useState<boolean>(false);
-  const [citeParams, setCiteParams] = useState<{ title?: string; author?: string }>({});
-
-  // Handlers
-  const handleUpdateTitle = (newTitle: string) => {
-    setCurrentArticle((prev) => ({
-      ...prev,
-      title: newTitle,
-    }));
+  const newArticle = () => go({ view: 'studio', id: store.createArticle() });
+  const deleteArticle = (a: Article) => {
+    if (!confirm(`Delete "${a.title || 'Untitled draft'}"? This cannot be undone.`)) return;
+    store.deleteArticle(a.id);
+    if (routeId === a.id) go({ view: 'library' });
+  };
+  const citeArticle = (a: Article) => {
+    setCiteSource({ title: a.title, author: a.author.name, date: a.updatedAt, url: articleUrl(a.id) });
+    setDialog('cite');
+  };
+  const startArticleFromIdea = (idea: StudentIdeaPost) => {
+    const { code, language } = idea.sampleCodeSnippet;
+    const body = `## Background\n\n${idea.abstract}\n\n## Design\n\nDescribe the hardware and the key design decisions.${
+      code ? `\n\n## Implementation\n\n\`\`\`${language.toLowerCase()}\n${code}\n\`\`\`` : ''
+    }\n\n## Results\n\nWhat did you measure, and how does it compare with the target?\n`;
+    go({ view: 'studio', id: store.createArticle({ title: idea.title, abstract: idea.abstract, tags: idea.tags, body }) });
   };
 
-  const handleUpdateContent = (newContent: string) => {
-    setMarkdownContent(newContent);
-  };
+  const paletteActions: PaletteAction[] = [
+    { id: 'go-library', group: 'Go to', label: 'Library', run: () => go({ view: 'library' }) },
+    { id: 'go-studio', group: 'Go to', label: 'Studio', run: () => go({ view: 'studio' }) },
+    { id: 'go-campus', group: 'Go to', label: 'Campus ideas', run: () => go({ view: 'campus' }) },
+    { id: 'new', group: 'Create', label: 'New article', run: newArticle },
+    ...(article
+      ? [
+          route.view === 'studio'
+            ? { id: 'read', group: 'This article', label: 'View as reader', run: () => go({ view: 'reader', id: article.id }) }
+            : { id: 'edit', group: 'This article', label: 'Edit in studio', run: () => go({ view: 'studio', id: article.id }) },
+          { id: 'publish', group: 'This article', label: article.status === 'draft' ? 'Publish' : 'Share or move to drafts', run: () => setDialog('publish') },
+          { id: 'cite', group: 'This article', label: 'Cite', run: () => citeArticle(article) },
+          { id: 'ieee', group: 'This article', label: 'Export IEEE-style PDF', run: () => setDialog('ieee') },
+        ]
+      : []),
+    ...store.articles.map((a) => ({
+      id: `open-${a.id}`,
+      group: 'Articles',
+      label: `${a.title || 'Untitled draft'}${a.status === 'draft' ? ' (draft)' : ''}`,
+      run: () => go({ view: 'reader', id: a.id }),
+    })),
+  ];
 
-  const handleInsertWidget = (type: 'oscilloscope' | 'hardware-sandbox' | 'circuit-schematic' | 'latex-callout' | 'standards-callout') => {
-    let tag = '';
-    if (type === 'oscilloscope') {
-      tag = '\n\n<OscilloscopeWidget frequency={100} voltage={400} />\n';
-    } else if (type === 'hardware-sandbox') {
-      tag = '\n\n<HardwareSandbox />\n';
-    } else if (type === 'circuit-schematic') {
-      tag = '\n\n<CircuitSchematicWidget title="H-Bridge GaN Power Stage with LC Filter Topology" />\n';
-    } else if (type === 'latex-callout') {
-      tag = '\n\n<LatexStandardsBlock equation="eq-p-sw" />\n';
-    } else if (type === 'standards-callout') {
-      tag = '\n\n<StandardsCallout code="IEEE 1547-2018" />\n';
-    }
-
-    setMarkdownContent((prev) => prev + tag);
-  };
-
-  const handleSwitchBranch = (branch: BranchType) => {
-    setCurrentArticle((prev) => ({
-      ...prev,
-      branch,
-    }));
-  };
-
-  const handleSelectArticle = (articleId: string) => {
-    const found = mockArticles.find((a) => a.id === articleId);
-    if (found) {
-      setCurrentArticle(found);
-    }
-  };
-
-  const handleAddStudentIdea = (newIdea: StudentIdeaPost) => {
-    setStudentIdeas((prev) => [newIdea, ...prev]);
-  };
-
-  const handleOpenCiteModal = (title?: string, author?: string) => {
-    setCiteParams({ title, author });
-    setIsCiteModalOpen(true);
-  };
-
-  return (
-    <div className="min-h-screen bg-[#090A0F] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
-      {/* Telemetry Header */}
-      <TelemetryHeader
-        currentArticle={currentArticle}
-        viewMode={viewMode}
-        onChangeViewMode={setViewMode}
-        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-        onOpenPipelineModal={() => setIsPipelineModalOpen(true)}
-        onOpenPublishModal={() => setIsPublishModalOpen(true)}
-        onSwitchBranch={handleSwitchBranch}
-        currentUser={mockCurrentUser}
-        collaborators={mockCollaborators}
-      />
-
-      {/* Main View Area */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* VIEW 1: Split-Pane Technical IDE & MDX Editor */}
-        {viewMode === 'editor' && (
-          <SplitEditor
-            article={currentArticle}
-            onUpdateTitle={handleUpdateTitle}
-            onUpdateContent={handleUpdateContent}
-            markdownContent={markdownContent}
-            onInsertWidget={handleInsertWidget}
-            onOpenCiteModal={() => handleOpenCiteModal()}
-            onOpenIeeeModal={() => setIsIeeeModalOpen(true)}
-          />
-        )}
-
-        {/* VIEW 2: Student Campus Social Idea Network */}
-        {viewMode === 'campus' && (
-          <StudentCampusHub
-            currentUser={mockCurrentUser}
-            ideas={studentIdeas}
-            onAddIdea={handleAddStudentIdea}
-            onOpenCiteModal={handleOpenCiteModal}
-            onOpenStudioWithTopic={(topic) => {
-              handleUpdateTitle(topic);
-              setViewMode('editor');
-            }}
-          />
-        )}
-
-        {/* VIEW 3: Dedicated Reader Mode */}
-        {viewMode === 'preview' && (
-          <div className="flex-1 h-[calc(100vh-56px)] overflow-hidden">
-            <PreviewPane
-              article={currentArticle}
-              onOpenCiteModal={() => handleOpenCiteModal()}
-              onOpenIeeeModal={() => setIsIeeeModalOpen(true)}
-            />
-          </div>
-        )}
-
-        {/* AI Co-Pilot & Automated Production Sidebar */}
-        <AIPilotSidebar
-          isOpen={isAIPilotOpen}
-          onToggle={() => setIsAIPilotOpen(!isAIPilotOpen)}
-          article={currentArticle}
-          onOpenIeeeModal={() => setIsIeeeModalOpen(true)}
-        />
-      </div>
-
-      {/* Global Modals */}
-      <CommandPalette
-        isOpen={isCommandPaletteOpen}
-        onClose={() => setIsCommandPaletteOpen(false)}
-        onSelectViewMode={setViewMode}
-        onSwitchBranch={handleSwitchBranch}
-        onInsertWidget={handleInsertWidget}
-        onOpenIeeeModal={() => setIsIeeeModalOpen(true)}
-        onOpenCiteModal={() => handleOpenCiteModal()}
-        onSelectArticle={handleSelectArticle}
-      />
-
-      <PublishModal
-        isOpen={isPublishModalOpen}
-        onClose={() => setIsPublishModalOpen(false)}
-        article={currentArticle}
-      />
-
-      <IeeeExportModal
-        isOpen={isIeeeModalOpen}
-        onClose={() => setIsIeeeModalOpen(false)}
-        article={currentArticle}
-      />
-
-      <PipelineModal
-        isOpen={isPipelineModalOpen}
-        onClose={() => setIsPipelineModalOpen(false)}
-        pipeline={currentArticle.pipelineStatus}
-      />
-
-      <CiteModal
-        isOpen={isCiteModalOpen}
-        onClose={() => setIsCiteModalOpen(false)}
-        article={currentArticle}
-        customTitle={citeParams.title}
-        customAuthor={citeParams.author}
-      />
+  const recent = [...store.articles].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 6);
+  const missing = (
+    <div className="mx-auto max-w-[44rem] px-5 py-16">
+      <EmptyState title="This article does not exist">
+        <p>It may have been deleted.</p>
+        <a href="#/library" className="btn btn-outline btn-sm mt-4">Back to the library</a>
+      </EmptyState>
     </div>
   );
-};
 
-export default App;
+  return (
+    <div className="flex min-h-screen flex-col">
+      {/* A button, not href="#main": the hash is the router. */}
+      <button
+        onClick={() => document.getElementById('main')?.focus()}
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:bg-paper focus:p-2"
+      >
+        Skip to content
+      </button>
+      <SiteHeader route={route} onSearch={() => setDialog('palette')} onNew={newArticle} />
+      {store.saveFailed && route.view !== 'studio' && (
+        <p role="alert" className="bg-danger-wash px-4 py-2 text-center text-[15px] text-danger">
+          Changes are not being saved: browser storage is full or blocked.
+        </p>
+      )}
+
+      <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+        {route.view === 'library' && (
+          <Library articles={store.articles} onNew={newArticle} onEdit={(id) => go({ view: 'studio', id })} onDelete={deleteArticle} />
+        )}
+
+        {route.view === 'reader' &&
+          (article ? (
+            <Reader
+              article={article}
+              onEdit={() => go({ view: 'studio', id: article.id })}
+              onEndorse={() => store.toggleArticleEndorse(article.id)}
+              onFork={() => {
+                const id = store.forkArticle(article.id);
+                if (id) go({ view: 'studio', id });
+              }}
+              onCite={() => citeArticle(article)}
+              onExport={() => setDialog('ieee')}
+              onDelete={() => deleteArticle(article)}
+            />
+          ) : missing)}
+
+        {route.view === 'studio' &&
+          (routeId && !article ? missing : (
+            <Studio
+              key={article?.id ?? 'none'}
+              article={article}
+              recent={recent}
+              saveFailed={store.saveFailed}
+              onChange={(patch) => article && store.updateArticle(article.id, patch)}
+              onDelete={() => article && deleteArticle(article)}
+              onPublish={() => setDialog('publish')}
+              onNew={newArticle}
+            />
+          ))}
+
+        {route.view === 'campus' && (
+          <StudentCampusHub
+            onCite={(idea) => {
+              setCiteSource({ title: idea.title, author: idea.author.name, date: idea.createdAt, url: `${location.origin}${location.pathname}#/campus` });
+              setDialog('cite');
+            }}
+            onStartArticle={startArticleFromIdea}
+          />
+        )}
+      </main>
+
+      {route.view !== 'studio' && (
+        <footer className="border-t border-ink-rule print:hidden">
+          <div className="mx-auto flex max-w-[80rem] flex-wrap items-center justify-between gap-3 px-4 py-5 text-[14px] text-ink-3 sm:px-6">
+            <span>Articles are stored in this browser. Campus ideas are shared online.</span>
+            <button
+              className="btn btn-quiet btn-sm"
+              onClick={() => confirm('Replace your articles with the demo articles? Your article changes will be lost. Campus ideas are not affected.') && store.resetDemo()}
+            >
+              Reset demo data
+            </button>
+          </div>
+        </footer>
+      )}
+
+      <CommandPalette open={dialog === 'palette'} onClose={closeDialog} actions={paletteActions} />
+      <PublishModal
+        open={dialog === 'publish'}
+        article={article}
+        onClose={closeDialog}
+        onPublish={() => article && store.updateArticle(article.id, { status: 'published' })}
+        onUnpublish={() => article && store.updateArticle(article.id, { status: 'draft' })}
+      />
+      <IeeeExportModal open={dialog === 'ieee'} onClose={closeDialog} article={article} />
+      <CiteModal open={dialog === 'cite'} onClose={closeDialog} source={citeSource} />
+    </div>
+  );
+}

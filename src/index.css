@@ -3,108 +3,266 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    color-scheme: dark;
+  html {
+    color-scheme: light;
   }
-  
+
   body {
-    background-color: #090A0F;
-    color: #E2E8F0;
-    font-family: 'Inter', system-ui, sans-serif;
+    @apply bg-paper text-ink font-sans antialiased;
+    font-size: 16px;
+    /* 5 mm computation-pad grid, printed faintly like the back of the sheet showing through */
+    background-image:
+      linear-gradient(to right, theme(colors.paper.line / 45%) 1px, transparent 1px),
+      linear-gradient(to bottom, theme(colors.paper.line / 45%) 1px, transparent 1px);
+    background-size: 20px 20px;
   }
 
-  code, pre, kbd, samp {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  :focus-visible {
+    outline: 2px solid theme(colors.accent.DEFAULT);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: theme(colors.accent.wash);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
   }
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: #090A0F;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 240, 255, 0.4);
+@layer components {
+  .btn {
+    @apply inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-[3px] px-3.5 text-[15px] font-medium leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-sm {
+    @apply h-8 px-2.5 text-[14px];
+  }
+  .btn-icon {
+    @apply w-9 px-0;
+  }
+  .btn-primary {
+    @apply bg-ink text-paper hover:bg-ink-2;
+  }
+  .btn-outline {
+    @apply border border-ink-rule bg-paper text-ink hover:border-ink-3 hover:bg-paper-deep;
+  }
+  .btn-quiet {
+    @apply text-ink-2 hover:bg-ink/5 hover:text-ink;
+  }
+  .btn-danger {
+    @apply text-danger hover:bg-danger-wash;
+  }
+  .btn[aria-pressed='true'] {
+    @apply border-accent bg-accent-wash text-accent-ink;
+  }
+
+  .field {
+    @apply w-full rounded-[3px] border border-ink-rule bg-white/70 px-3 py-2 text-[15px] text-ink placeholder:text-ink-3/70 hover:border-ink-3 focus:border-ink focus:bg-white focus:outline-none;
+  }
+  .field-label {
+    @apply mb-1.5 block text-[14px] font-medium text-ink-2;
+  }
+
+  .chip {
+    @apply inline-flex items-center rounded-[3px] border border-ink-rule px-2 py-0.5 text-[13.5px] text-ink-2;
+  }
+
+  /* Instrument panels: the only dark surfaces, used for interactive figures. */
+  .instrument {
+    @apply overflow-hidden rounded-md border border-black/50 bg-scope-bg font-sans text-scope-text;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(22 33 43 / 0.25);
+  }
+  .instrument-bar {
+    @apply flex flex-wrap items-center justify-between gap-2 border-b border-scope-line bg-scope-panel px-3 py-2;
+  }
+  .instrument-btn {
+    @apply inline-flex h-7 items-center gap-1.5 rounded-[3px] border border-scope-line px-2.5 text-[13.5px] text-scope-text hover:border-scope-dim hover:bg-white/5 disabled:opacity-50;
+  }
+
+  /* Article layout: a margin column for section, figure and equation numbers beside the text. */
+  .nb-page {
+    container-type: inline-size;
+  }
+  .nb-row {
+    display: grid;
+    grid-template-columns: 4rem minmax(0, 40rem) minmax(0, 1fr);
+    column-gap: 1.75rem;
+  }
+  .nb-row + .nb-row {
+    margin-top: 1.15rem;
+  }
+  .nb-row.nb-section {
+    margin-top: 2.75rem;
+  }
+  .nb-mark {
+    grid-column: 1;
+    text-align: right;
+    @apply pt-1 font-sans text-[15px] font-semibold tabular-nums text-accent-ink;
+  }
+  .nb-main {
+    grid-column: 2;
+    min-width: 0;
+  }
+  .nb-wide .nb-main {
+    grid-column: 2 / 4;
+  }
+  @container (max-width: 44rem) {
+    .nb-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .nb-mark {
+      text-align: left;
+      padding: 0 0 0.35rem;
+    }
+    .nb-main,
+    .nb-wide .nb-main {
+      grid-column: 1;
+    }
+  }
+
+  .prose-nb {
+    @apply font-serif text-[18.5px] leading-[1.7] text-ink;
+  }
+  .prose-nb h2 {
+    @apply text-[28px] font-semibold leading-tight tracking-[-0.01em];
+  }
+  .prose-nb h3 {
+    @apply text-[22px] font-semibold leading-snug;
+  }
+  .prose-nb h4 {
+    @apply text-[19px] font-semibold;
+  }
+  .prose-nb a {
+    @apply text-accent-ink underline decoration-accent/40 underline-offset-2 hover:decoration-accent;
+  }
+  .prose-nb :not(pre) > code {
+    @apply rounded-[3px] bg-paper-deep px-1 py-px font-mono text-[0.82em];
+  }
+  .prose-nb ul {
+    @apply list-disc space-y-1.5 pl-6;
+  }
+  .prose-nb ol {
+    @apply list-decimal space-y-1.5 pl-6;
+  }
+  .prose-nb li::marker {
+    @apply text-accent;
+  }
+  .prose-nb blockquote {
+    @apply border-l-[3px] border-accent pl-4 italic text-ink-2;
+  }
+  .prose-nb pre {
+    @apply overflow-x-auto rounded-[3px] border border-ink-rule bg-paper-deep/70 p-4 font-mono text-[14px] leading-relaxed;
+  }
+  .prose-nb hr {
+    @apply border-t border-dashed border-ink-rule;
+  }
+  .prose-nb .katex {
+    font-size: 1.04em;
+  }
+  .nb-caption {
+    @apply mt-2.5 font-serif text-[15.5px] italic leading-snug text-ink-2;
+  }
+
+  /* Engineering-drawing title block: article metadata in a ruled grid. */
+  .title-block {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    @apply border-[1.5px] border-ink bg-ink/35;
+  }
+  @container (min-width: 40rem) {
+    .title-block {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @container (min-width: 56rem) {
+    .title-block {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+  }
+  .title-block > div {
+    @apply bg-paper px-3 py-2.5;
+  }
+  .title-block dt {
+    @apply text-[13px] font-medium text-ink-3;
+  }
+  .title-block dd {
+    @apply mt-0.5 text-[15.5px] font-medium leading-snug text-ink;
+  }
+
+  /* IEEE-style print sheet */
+  .paper-sheet {
+    @apply bg-white font-serif text-[13.5px] leading-[1.55] text-black;
+  }
+  .paper-sheet .paper-body {
+    column-gap: 2rem;
+  }
+  @media (min-width: 768px) {
+    .paper-sheet .paper-body {
+      column-count: 2;
+    }
+  }
+  .paper-sheet .paper-body > * + * {
+    margin-top: 0.6rem;
+  }
+  .paper-sheet h2 {
+    @apply mt-4 text-center text-[13px] font-semibold uppercase tracking-wide;
+  }
+  .paper-sheet h3 {
+    @apply mt-3 text-[13.5px] font-semibold italic;
+  }
+  .paper-sheet p {
+    text-align: justify;
+    hyphens: auto;
+  }
+  .paper-sheet pre {
+    @apply overflow-x-auto border border-neutral-300 p-2 font-mono text-[11px];
+    break-inside: avoid;
+  }
+  .paper-sheet ul {
+    @apply list-disc pl-5;
+  }
+  .paper-sheet ol {
+    @apply list-decimal pl-5;
+  }
 }
 
-/* Cyber-industrial precision effects */
-.bg-grid-pattern {
-  background-size: 24px 24px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-}
-
-.bg-dot-matrix {
-  background-image: radial-gradient(rgba(0, 240, 255, 0.12) 1px, transparent 1px);
-  background-size: 16px 16px;
-}
-
-.glass-panel {
-  background: rgba(14, 17, 24, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.glass-panel-glow {
-  background: rgba(14, 17, 24, 0.85);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(0, 240, 255, 0.25);
-  box-shadow: 0 0 25px -5px rgba(0, 240, 255, 0.15);
-}
-
-.border-glow-cyan {
-  border-color: rgba(0, 240, 255, 0.3);
-  box-shadow: 0 0 15px -3px rgba(0, 240, 255, 0.2);
-}
-
-.border-glow-amber {
-  border-color: rgba(255, 184, 0, 0.3);
-  box-shadow: 0 0 15px -3px rgba(255, 184, 0, 0.2);
-}
-
-.border-glow-emerald {
-  border-color: rgba(16, 185, 129, 0.3);
-  box-shadow: 0 0 15px -3px rgba(16, 185, 129, 0.2);
-}
-
-/* Oscilloscope CRT scanline overlay */
-.oscilloscope-screen {
-  background: radial-gradient(circle at 50% 50%, #0d1e1c 0%, #060e0d 100%);
-  position: relative;
-}
-
-.oscilloscope-screen::before {
-  content: " ";
-  display: block;
-  position: absolute;
-  top: 0; left: 0; bottom: 0; right: 0;
-  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
-  background-size: 100% 4px;
-  z-index: 2;
-  pointer-events: none;
-  opacity: 0.6;
-}
-
-/* Terminal Glow text */
-.text-cyan-glow {
-  color: #00F0FF;
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
-}
-
-.text-amber-glow {
-  color: #FFB800;
-  text-shadow: 0 0 10px rgba(255, 184, 0, 0.5);
-}
-
-.text-emerald-glow {
-  color: #10B981;
-  text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+/* Print only the IEEE sheet when the export dialog asks for it. */
+@media print {
+  body.printing-sheet {
+    background: white !important;
+  }
+  body.printing-sheet #root,
+  body.printing-sheet .no-print {
+    display: none !important;
+  }
+  body.printing-sheet .modal-overlay {
+    position: static !important;
+    display: block !important;
+    padding: 0 !important;
+    background: none !important;
+    backdrop-filter: none !important;
+  }
+  body.printing-sheet .modal-panel {
+    max-width: none !important;
+    max-height: none !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  body.printing-sheet .modal-scroll {
+    overflow: visible !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+  body.printing-sheet .paper-sheet {
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  body.printing-sheet .paper-body {
+    column-count: 2 !important;
+  }
 }

@@ -1,10 +1,23 @@
-export type BranchType = 
-  | 'main' 
-  | 'draft/power-systems-analysis' 
-  | 'draft/fpga-accelerator' 
-  | 'feature/rf-cavity-resonator';
+export type Category =
+  | 'Electrical & Power'
+  | 'Robotics & Control'
+  | 'Embedded & FPGA'
+  | 'Quantum & RF'
+  | 'Aerospace Dynamics';
 
-export type ViewMode = 'editor' | 'preview' | 'split' | 'campus' | 'ieee-reader';
+export const CATEGORIES: Category[] = [
+  'Electrical & Power',
+  'Robotics & Control',
+  'Embedded & FPGA',
+  'Quantum & RF',
+  'Aerospace Dynamics',
+];
+
+export type Route =
+  | { view: 'library' }
+  | { view: 'campus' }
+  | { view: 'reader'; id: string }
+  | { view: 'studio'; id?: string };
 
 export interface Author {
   id: string;
@@ -15,27 +28,6 @@ export interface Author {
   major: string;
   year: string;
   role: string;
-  verified: boolean;
-  activeStatus: 'editing' | 'reviewing' | 'idle';
-  citations: number;
-}
-
-export interface PipelineStep {
-  id: string;
-  name: string;
-  status: 'passed' | 'running' | 'pending' | 'failed';
-  duration: string;
-  logs: string[];
-}
-
-export interface PipelineStatus {
-  buildNumber: number;
-  commitHash: string;
-  status: 'passed' | 'running' | 'failed';
-  edgeCdn: 'active' | 'deploying';
-  latencyMs: number;
-  lastDeployed: string;
-  steps: PipelineStep[];
 }
 
 export interface EngineeringStandard {
@@ -52,59 +44,55 @@ export interface VerifiedEquation {
   id: string;
   name: string;
   latex: string;
-  verified: boolean;
   variables: { symbol: string; meaning: string; unit: string; testValue: string }[];
   domain: string;
   notes: string;
 }
 
-export interface ContentBlock {
-  id: string;
-  type: 'markdown' | 'oscilloscope' | 'hardware-sandbox' | 'latex-callout' | 'circuit-schematic' | 'standards-callout';
-  title?: string;
-  content?: string;
-  metadata?: Record<string, any>;
-}
-
 export interface Article {
   id: string;
-  slug: string;
   title: string;
   subtitle: string;
   abstract: string;
   author: Author;
-  collaborators: Author[];
-  branch: BranchType;
-  category: 'Electrical & Power' | 'Robotics & Control' | 'Embedded & FPGA' | 'Quantum & RF' | 'Aerospace Dynamics';
+  category: Category;
   tags: string[];
-  blocks: ContentBlock[];
+  /** Markdown with $math$, $$display math$$ and widget tags such as <OscilloscopeWidget />. */
+  body: string;
+  status: 'draft' | 'published';
   standards: EngineeringStandard[];
   equations: VerifiedEquation[];
-  telemetry: {
-    technicalDepth: number;     // 0-100
-    codeRatio: number;          // 0-100%
-    readTimeMinutes: number;
-    rigorScore: string;         // 'A+', 'A', 'B+'
-    peerReviewsPassed: number;
-    totalPeerReviews: number;
-    citationsCount: number;
-    endorsementsCount: number;
-    forksCount: number;
-  };
-  pipelineStatus: PipelineStatus;
+  endorsements: number;
+  endorsed: boolean;
+  createdAt: string;
   updatedAt: string;
+}
+
+/** A signed-in Campus member (stored in Supabase). */
+export interface Profile {
+  id: string;
+  name: string;
+  university: string;
+  department: string;
+  /** Domain of the verified sign-in email, e.g. "umich.edu". Set by the database, not the user. */
+  emailDomain: string;
+}
+
+export interface IdeaComment {
+  id: string;
+  author: Profile;
+  content: string;
+  createdAt: string;
 }
 
 export interface StudentIdeaPost {
   id: string;
   title: string;
-  author: Author;
+  author: Profile;
   department: string;
-  university: string;
-  timestamp: string;
+  createdAt: string;
   abstract: string;
   tags: string[];
-  schematicSummary: string;
   hardwareSpecs: {
     controller: string;
     supplyVoltage: string;
@@ -116,15 +104,6 @@ export interface StudentIdeaPost {
     code: string;
   };
   endorsements: number;
-  hasEndorsed?: boolean;
-  citations: number;
-  forks: number;
-  peerReviewsCount: number;
-  comments: {
-    id: string;
-    author: Author;
-    content: string;
-    timestamp: string;
-    verifiedStudentBadge: boolean;
-  }[];
+  hasEndorsed: boolean;
+  comments: IdeaComment[];
 }

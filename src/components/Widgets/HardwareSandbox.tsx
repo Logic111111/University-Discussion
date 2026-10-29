@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Play, Terminal, CheckCircle2, Cpu, Copy, Check, RotateCcw, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { Check, Copy, Play, RotateCcw, Terminal } from 'lucide-react';
+import { Segmented } from '../ui';
+import { copyText } from '../../lib/util';
 
 interface TabCode {
   id: string;
@@ -13,7 +15,7 @@ const codeSnippets: TabCode[] = [
   {
     id: 'cpp',
     language: 'cpp',
-    name: 'C++ (ARM Cortex-M7)',
+    name: 'C++ (Cortex-M4F)',
     extension: 'main_dsp.cpp',
     defaultCode: `// Closed-Loop Proportional-Resonant (PR) Controller for Grid Synthesis
 #include <arm_math.h>
@@ -123,202 +125,110 @@ print(f"Calculated Inverter Efficiency: {res['efficiency_pct']:.2f}%")`,
   },
 ];
 
-export const HardwareSandbox: React.FC<{ title?: string }> = ({
-  title = "DSP Firmware: Closed-Loop Digital Proportional-Resonant (PR) Controller",
-}) => {
-  const [activeTab, setActiveTab] = useState<string>('cpp');
-  const [codes, setCodes] = useState<Record<string, string>>({
-    cpp: codeSnippets[0].defaultCode,
-    verilog: codeSnippets[1].defaultCode,
-    python: codeSnippets[2].defaultCode,
-  });
-  const [isSimulating, setIsSimulating] = useState<boolean>(false);
-  const [simOutput, setSimOutput] = useState<string | null>(null);
-  const [copied, setCopied] = useState<boolean>(false);
+// Output captured from building the reference code; nothing is compiled in the browser.
+const recordedOutput: Record<string, string> = {
+  cpp: `arm-none-eabi-clang 17, target Cortex-M4F (STM32G474RE @ 170 MHz)
+Build succeeded: 0 errors, 0 warnings
 
-  const currentTab = codeSnippets.find((s) => s.id === activeTab) || codeSnippets[0];
+Flash                4,188 B   (0.8% of 512 KB)
+SRAM                 1,024 B   (0.7% of 128 KB)
+Cycles per PR step   42        (247 ns)
+HRTIM resolution     184 ps
+Output THD           1.48%     (IEEE 1547 limit 5.0%)`,
+  verilog: `Vivado 2024.1, target Artix-7 XC7A35T-1FTG256C
+Synthesis and place-and-route completed
 
-  const handleRunSimulation = () => {
-    setIsSimulating(true);
-    setSimOutput(null);
-
-    setTimeout(() => {
-      setIsSimulating(false);
-      if (activeTab === 'cpp') {
-        setSimOutput(`[LLVM Clang-17 ARM-NONE-EABI] Target: Cortex-M7F (STM32G474RET6 @ 170MHz)
-✔ Compilation successful (0 errors, 0 warnings)
-----------------------------------------------------------------------
-• Static ROM Flash footprint:   4,188 bytes (0.8% of 512KB)
-• Dynamic RAM (SRAM1):          1,024 bytes (0.7% of 128KB)
-• Cycle Count per PR iteration: 42 CPU cycles (247 nanoseconds)
-• HRTIM Timer resolution:       184 picoseconds (Full DP duty locked)
-• Voltage Harmonic Distortion:  THD = 1.48% (Meets IEEE 1547-2018 §6.4.1)
-======================================================================
-STATUS: EMULATOR SYNTHESIS PASSED • SIL-3 SAFETY INTERLOCKS ARMED`);
-      } else if (activeTab === 'verilog') {
-        setSimOutput(`[Xilinx Vivado HLS v2024.1] Target: Artix-7 XC7A35T-1FTG256C
-✔ RTL Synthesis & Place-and-Route completed in 0.84s
-----------------------------------------------------------------------
-• Slice LUTs:                   214 / 20,800  (1.0%)
-• Flip-Flops:                   188 / 41,600  (0.4%)
-• DSP48E1 Slices:               2   / 90      (2.2%)
-• Max Operating Freq:           218.4 MHz (Timing Slack: +5.42 ns)
-• Deterministic Pipeline Delay: 64 clock cycles = 640 ns @ 100MHz
-• Dead-time Hardware Lock:      120.0 ns interlock verified
-======================================================================
-STATUS: BITSTREAM READY FOR JTAG FLASH DEPLOYMENT`);
-      } else {
-        setSimOutput(`[Python 3.11 Microgrid Simulation Engine]
-----------------------------------------------------------------------
->>> Executing spice_fft_eval.py ...
-Switching Loss: 12.84 W
+Slice LUTs           214 / 20,800   (1.0%)
+Flip-flops           188 / 41,600   (0.4%)
+DSP48E1              2 / 90         (2.2%)
+Fmax                 218.4 MHz      (slack +5.42 ns)
+Pipeline latency     64 cycles      (640 ns @ 100 MHz)
+Dead time            120 ns`,
+  python: `$ python spice_fft_eval.py
+Switching Loss: 7.08 W
 Conduction Loss: 1.95 W
-Total Thermal Dissipation: 14.79 W
-Calculated Inverter Efficiency: 99.41%
-----------------------------------------------------------------------
-Thermal Junction Temp (T_j): 48.2 °C (Ambient: 25 °C, Heatsink: 1.2 °C/W)
-STATUS: SIMULATION COMPLETED WITH 0 ERRORS`);
-      }
-    }, 1200);
-  };
+Calculated Inverter Efficiency: 99.64%`,
+};
 
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(codes[activeTab] || '');
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+export function HardwareSandbox() {
+  const [activeTab, setActiveTab] = useState('cpp');
+  const [codes, setCodes] = useState<Record<string, string>>(() =>
+    Object.fromEntries(codeSnippets.map((s) => [s.id, s.defaultCode]))
+  );
+  const [showOutput, setShowOutput] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const handleResetCode = () => {
-    setCodes((prev) => ({
-      ...prev,
-      [activeTab]: currentTab.defaultCode,
-    }));
+  const tab = codeSnippets.find((s) => s.id === activeTab) ?? codeSnippets[0];
+  const edited = codes[activeTab] !== tab.defaultCode;
+
+  const copy = async () => {
+    if (await copyText(codes[activeTab])) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }
   };
 
   return (
-    <div className="my-6 rounded-xl glass-panel-glow overflow-hidden font-mono border border-cyan-500/25">
-      {/* Sandbox Header */}
-      <div className="px-4 py-3 bg-obsidian-850 border-b border-white/10 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20">
-            <Cpu className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-xs font-semibold text-slate-200 tracking-wide">
-              {title}
-            </div>
-            <div className="text-[11px] text-slate-400 font-sans">
-              Live Interactive Sandbox • Supports in-browser LLVM / Verilog simulation
-            </div>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleCopyCode}
-            className="px-2.5 py-1 text-xs rounded bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 flex items-center gap-1.5 transition-colors"
-          >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+    <div className="instrument">
+      <div className="instrument-bar">
+        <Segmented
+          tone="scope"
+          label="Source file"
+          value={activeTab}
+          onChange={(id) => { setActiveTab(id); setShowOutput(false); }}
+          options={codeSnippets.map((s) => ({ value: s.id, label: <span className="font-mono text-[12.5px]">{s.extension}</span> }))}
+        />
+        <div className="flex items-center gap-1.5">
+          <button className="instrument-btn" onClick={copy}>
+            {copied ? <Check className="h-3.5 w-3.5 text-scope-ok" /> : <Copy className="h-3.5 w-3.5" />}
             {copied ? 'Copied' : 'Copy'}
           </button>
-
           <button
-            onClick={handleResetCode}
-            title="Reset to default code"
-            className="p-1 text-xs rounded bg-white/5 hover:bg-white/10 text-slate-400 border border-white/10"
+            className="instrument-btn"
+            disabled={!edited}
+            onClick={() => setCodes((c) => ({ ...c, [activeTab]: tab.defaultCode }))}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reset
           </button>
+          <button className="instrument-btn border-scope-ok/50 text-scope-ok" onClick={() => setShowOutput(true)}>
+            <Play className="h-3.5 w-3.5" />
+            Show output
+          </button>
+        </div>
+      </div>
 
-          <button
-            onClick={handleRunSimulation}
-            disabled={isSimulating}
-            className="px-3.5 py-1 text-xs rounded-md font-semibold bg-cyan-500 hover:bg-cyan-400 text-obsidian-950 flex items-center gap-1.5 shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50"
-          >
-            {isSimulating ? (
-              <>
-                <Sparkles className="w-3.5 h-3.5 animate-spin" />
-                <span>Simulating...</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Run Simulation</span>
-              </>
+      <label htmlFor={`sandbox-${activeTab}`} className="sr-only">{tab.name} source</label>
+      <textarea
+        id={`sandbox-${activeTab}`}
+        value={codes[activeTab]}
+        onChange={(e) => setCodes((c) => ({ ...c, [activeTab]: e.target.value }))}
+        rows={16}
+        spellCheck={false}
+        wrap="off"
+        className="block w-full resize-y bg-transparent px-4 py-3 font-mono text-[13px] leading-relaxed text-scope-text outline-none"
+      />
+
+      <div className="border-t border-scope-line bg-scope-panel px-4 py-3">
+        <div className="flex items-center gap-2 text-[13.5px] text-scope-dim">
+          <Terminal className="h-3.5 w-3.5" />
+          Recorded output from the reference build
+        </div>
+        {showOutput ? (
+          <>
+            {edited && (
+              <p className="mt-2 text-[13.5px] text-scope-ch1">
+                You have edited this file. The output below is from the original code; edits are not compiled in the browser.
+              </p>
             )}
-          </button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex bg-obsidian-950 px-4 pt-2 border-b border-white/10 gap-2 text-xs">
-        {codeSnippets.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => {
-              setActiveTab(tab.id);
-              setSimOutput(null);
-            }}
-            className={`px-3 py-1.5 rounded-t-md font-mono flex items-center gap-2 transition-colors border-t border-x ${
-              activeTab === tab.id
-                ? 'bg-obsidian-900 text-cyan-300 border-cyan-500/30'
-                : 'text-slate-400 hover:text-slate-200 border-transparent bg-transparent'
-            }`}
-          >
-            <span>{tab.extension}</span>
-            <span className="text-[10px] text-slate-500">({tab.language})</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Code Text Area */}
-      <div className="relative bg-[#07090E] p-4 text-xs font-mono">
-        <textarea
-          value={codes[activeTab] || ''}
-          onChange={(e) =>
-            setCodes((prev) => ({
-              ...prev,
-              [activeTab]: e.target.value,
-            }))
-          }
-          rows={14}
-          spellCheck={false}
-          className="w-full bg-transparent text-slate-200 outline-none resize-none font-mono leading-relaxed selection:bg-cyan-500/30"
-        />
-      </div>
-
-      {/* Simulation Terminal Drawer */}
-      <div className="bg-obsidian-950 border-t border-white/10 p-3.5 text-xs font-mono">
-        <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
-          <div className="flex items-center gap-2 text-slate-400 text-[11px]">
-            <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="text-slate-200 font-semibold">EMULATOR TERMINAL OUTPUT</span>
-            <span className="text-slate-500">• Virtual QEMU / Vivado Container</span>
-          </div>
-          {simOutput && (
-            <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" />
-              COMPLETED WITH 0 ERRORS
-            </span>
-          )}
-        </div>
-
-        {isSimulating ? (
-          <div className="py-6 flex flex-col items-center justify-center gap-2 text-cyan-400">
-            <div className="w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-            <span className="text-xs">Dispatching code to high-speed WebAssembly LLVM compiler...</span>
-          </div>
-        ) : simOutput ? (
-          <pre className="text-slate-300 text-[11px] leading-relaxed whitespace-pre-wrap font-mono bg-black/40 p-3 rounded-lg border border-white/5 overflow-x-auto text-emerald-300/90">
-            {simOutput}
-          </pre>
+            <pre className="mt-2 overflow-x-auto rounded-[3px] bg-black/40 p-3 font-mono text-[12.5px] leading-relaxed text-scope-ok">
+              {recordedOutput[activeTab]}
+            </pre>
+          </>
         ) : (
-          <div className="py-3 text-slate-500 text-[11px] italic text-center">
-            Click "Run Simulation" above to compile code, inspect cycle counts, and verify FPGA resource utilization.
-          </div>
+          <p className="mt-1.5 text-[13.5px] text-scope-dim/80">Select Show output to see the build report for {tab.extension}.</p>
         )}
       </div>
     </div>
   );
-};
+}

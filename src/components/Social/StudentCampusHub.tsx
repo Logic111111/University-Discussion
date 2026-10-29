@@ -1,582 +1,400 @@
-import React, { useState } from 'react';
-import { 
-  Plus, Search, ThumbsUp, GitFork, BookMarked, MessageSquare, 
-  Send, Sparkles, Cpu, Award, ExternalLink, Filter, TrendingUp, Users, ChevronDown, ChevronUp, Copy, Check
-} from 'lucide-react';
-import { StudentIdeaPost, Author } from '../../types';
-import { CreateIdeaModal } from './CreateIdeaModal';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { BadgeCheck, BookMarked, Check, Copy, FilePlus2, LogOut, MessageSquare, PenLine, Plus, Search, ThumbsUp, Trash2, UserRound } from 'lucide-react';
+import { Profile, StudentIdeaPost } from '../../types';
+import { Campus, useCampus } from '../../campus';
+import { copyText, relativeTime } from '../../lib/util';
+import { Avatar, EmptyState } from '../ui';
+import { IdeaFormModal } from './IdeaFormModal';
+import { ProfileModal, SignInModal } from './AccountModals';
 
-interface StudentCampusHubProps {
-  currentUser: Author;
-  ideas: StudentIdeaPost[];
-  onAddIdea: (idea: StudentIdeaPost) => void;
-  onOpenCiteModal: (title?: string, author?: string) => void;
-  onOpenStudioWithTopic?: (title: string) => void;
+interface CampusProps {
+  onCite: (idea: StudentIdeaPost) => void;
+  onStartArticle: (idea: StudentIdeaPost) => void;
 }
 
-export const StudentCampusHub: React.FC<StudentCampusHubProps> = ({
-  currentUser,
-  ideas,
-  onAddIdea,
-  onOpenCiteModal,
-  onOpenStudioWithTopic,
-}) => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedDept, setSelectedDept] = useState<string>('All');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [expandedCodeId, setExpandedCodeId] = useState<string | null>(null);
-  const [activeCommentPostId, setActiveCommentPostId] = useState<string | null>(null);
-  const [newCommentText, setNewCommentText] = useState<string>('');
-  const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+/** The verified sign-in email domain: the part of an author's identity nobody can type in themselves. */
+const VerifiedDomain = ({ domain }: { domain: string }) =>
+  domain ? (
+    <span className="inline-flex items-center gap-1 text-[13.5px] font-medium text-ok" title={`Signed in with a verified @${domain} email address`}>
+      <BadgeCheck className="h-3.5 w-3.5" aria-hidden />
+      <span className="sr-only">Verified email domain </span>
+      {domain}
+    </span>
+  ) : null;
 
-  // Local state for interactive endorsements and forks
-  const [localPosts, setLocalPosts] = useState<StudentIdeaPost[]>(ideas);
+const Byline = ({ author }: { author: Profile }) => (
+  <span className="min-w-0">
+    <span className="flex flex-wrap items-center gap-x-2">
+      <span className="font-medium text-ink">{author.name}</span>
+      <VerifiedDomain domain={author.emailDomain} />
+    </span>
+    <span className="block truncate text-ink-3">
+      {author.university}{author.department && `, ${author.department}`}
+    </span>
+  </span>
+);
 
-  // Keep synced if ideas prop updates
-  React.useEffect(() => {
-    setLocalPosts(ideas);
-  }, [ideas]);
+export function StudentCampusHub({ onCite, onStartArticle }: CampusProps) {
+  const campus = useCampus();
+  const { session, profile, ideas } = campus;
+  const [query, setQuery] = useState('');
+  const [dept, setDept] = useState('All');
+  const [form, setForm] = useState<{ open: boolean; idea?: StudentIdeaPost }>({ open: false });
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const needsProfile = !!session && profile === null;
 
-  const categories = [
-    'All',
-    'Power & Energy',
-    'Robotics & Control',
-    'Embedded & FPGA',
-    'Aerospace & Avionics',
-    'Quantum Computing',
-  ];
+  // Ask for name and university straight after the first sign-in.
+  useEffect(() => {
+    if (needsProfile) setProfileOpen(true);
+  }, [needsProfile]);
 
-  const filteredPosts = localPosts.filter((post) => {
-    const matchDept =
-      selectedDept === 'All' ||
-      post.department.toLowerCase().includes(selectedDept.toLowerCase()) ||
-      post.tags.some((t) => t.toLowerCase().includes(selectedDept.toLowerCase()));
-
-    const matchQuery =
-      post.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      post.abstract.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      post.author.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      post.author.university.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      post.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    return matchDept && matchQuery;
-  });
-
-  const handleToggleEndorse = (postId: string) => {
-    setLocalPosts((prev) =>
-      prev.map((post) => {
-        if (post.id === postId) {
-          const wasEndorsed = post.hasEndorsed;
-          return {
-            ...post,
-            hasEndorsed: !wasEndorsed,
-            endorsements: wasEndorsed ? post.endorsements - 1 : post.endorsements + 1,
-          };
-        }
-        return post;
-      })
-    );
+  /** Runs the action for members; visitors are sent to sign-in (or profile) first. */
+  const asMember = (action: () => void) => {
+    if (!session) setSignInOpen(true);
+    else if (!profile) setProfileOpen(true);
+    else action();
   };
 
-  const handleForkIdea = (post: StudentIdeaPost) => {
-    setLocalPosts((prev) =>
-      prev.map((p) => {
-        if (p.id === post.id) {
-          return {
-            ...p,
-            forks: p.forks + 1,
-          };
-        }
-        return p;
-      })
+  const departments = useMemo(() => ['All', ...new Set(ideas.map((i) => i.department).filter(Boolean))], [ideas]);
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return ideas
+      .filter((i) => dept === 'All' || i.department === dept)
+      .filter((i) =>
+        !q || [i.title, i.abstract, i.author.name, i.author.university, i.author.emailDomain, i.hardwareSpecs.controller, ...i.tags]
+          .some((s) => s.toLowerCase().includes(q))
+      );
+  }, [ideas, query, dept]);
+  const top = useMemo(() => [...ideas].filter((i) => i.endorsements > 0).sort((a, b) => b.endorsements - a.endorsements).slice(0, 3), [ideas]);
+
+  if (!campus.configured) {
+    return (
+      <div className="mx-auto max-w-[44rem] px-5 py-16">
+        <EmptyState title="Campus is not connected to its database">
+          <p>Add VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY to .env.local, then restart the dev server.</p>
+        </EmptyState>
+      </div>
     );
-    if (onOpenStudioWithTopic) {
-      onOpenStudioWithTopic(post.title);
-    }
-  };
+  }
 
-  const handleAddComment = (postId: string) => {
-    if (!newCommentText.trim()) return;
-
-    setLocalPosts((prev) =>
-      prev.map((post) => {
-        if (post.id === postId) {
-          return {
-            ...post,
-            comments: [
-              ...post.comments,
-              {
-                id: `c_${Date.now()}`,
-                author: currentUser,
-                content: newCommentText.trim(),
-                timestamp: 'Just now',
-                verifiedStudentBadge: true,
-              },
-            ],
-            peerReviewsCount: post.peerReviewsCount + 1,
-          };
-        }
-        return post;
-      })
-    );
-
-    setNewCommentText('');
-  };
-
-  const handleCopyCode = (id: string, code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedCodeId(id);
-    setTimeout(() => setCopiedCodeId(null), 2000);
+  const deleteIdea = (idea: StudentIdeaPost) => {
+    if (confirm(`Delete "${idea.title}" and its discussion? This cannot be undone.`)) campus.deleteIdea(idea.id);
   };
 
   return (
-    <div className="flex-1 bg-[#090A0F] overflow-y-auto p-4 sm:p-6 lg:p-8 font-sans selection:bg-cyan-500/30">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Campus Network Hero Banner */}
-        <div className="relative rounded-2xl glass-panel-glow p-6 sm:p-8 border border-cyan-500/30 overflow-hidden">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                  NEXUS CAMPUS EXCHANGE • ACADEMIC YEAR 2026-2027
-                </span>
-                <span className="text-xs text-slate-500 font-mono">Global Mesh Active</span>
-              </div>
-              <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-100 tracking-tight">
-                Engineering Student Idea Exchange & Project Lab
-              </h1>
-              <p className="text-slate-400 text-sm max-w-2xl leading-relaxed">
-                A decentralized academic social platform for engineering students to log hardware prototypes, share firmware algorithms, get peer-reviewed, and publish verified capstone research.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0">
-              <button
-                onClick={() => setIsModalOpen(true)}
-                className="w-full sm:w-auto px-5 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-obsidian-950 font-mono font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-cyan-500/25 transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Log & Share Your Idea</span>
-              </button>
-            </div>
-          </div>
+    <div className="mx-auto max-w-[68rem] px-5 pb-24 pt-12 sm:px-8 sm:pt-16">
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <h1 className="font-serif text-[44px] font-semibold leading-none tracking-[-0.02em] sm:text-[60px]">Campus ideas</h1>
+          <p className="mt-4 max-w-[36rem] font-serif text-[19px] leading-relaxed text-ink-2">
+            Prototypes and works in progress from engineering students. Every post shows who wrote it and the university email they signed in with.
+          </p>
         </div>
-
-        {/* Filter Bar & Search */}
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
-          {/* Department Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 md:pb-0 text-xs font-mono">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedDept(cat)}
-                className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-all ${
-                  selectedDept === cat
-                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-sm shadow-cyan-500/20 font-semibold'
-                    : 'bg-obsidian-900 text-slate-400 hover:text-slate-200 border-white/10'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {/* Search Input */}
-          <div className="relative min-w-[280px]">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search projects, authors, microcontrollers, tags..."
-              className="w-full pl-9 pr-4 py-2 rounded-xl bg-obsidian-900 border border-white/10 text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:border-cyan-400 outline-none transition-colors"
-            />
-          </div>
-        </div>
-
-        {/* Main Feed Grid: 2 Columns on desktop */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left 2 Cols: Feed of Student Posts */}
-          <div className="lg:col-span-2 space-y-6">
-            {filteredPosts.length === 0 ? (
-              <div className="p-12 text-center rounded-2xl glass-panel border border-white/10 font-mono text-slate-400">
-                No engineering projects found matching your search. Be the first to publish one!
-              </div>
-            ) : (
-              filteredPosts.map((post) => {
-                const isExpanded = expandedCodeId === post.id;
-                const isCommentsOpen = activeCommentPostId === post.id;
-
-                return (
-                  <article
-                    key={post.id}
-                    className="rounded-2xl glass-panel-glow border border-white/10 hover:border-cyan-500/40 transition-all overflow-hidden"
-                  >
-                    {/* Post Author Bar */}
-                    <div className="p-5 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={post.author.avatar}
-                          alt={post.author.name}
-                          className="w-10 h-10 rounded-full border border-cyan-400/50 object-cover"
-                        />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-100 text-sm font-sans">
-                              {post.author.name}
-                            </span>
-                            <span className="text-xs text-cyan-400 font-mono">
-                              {post.author.handle}
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded text-[10px] bg-cyan-500/20 text-cyan-300 font-mono font-semibold border border-cyan-500/30">
-                              STUDENT VERIFIED
-                            </span>
-                          </div>
-                          <div className="text-xs text-slate-400 font-sans mt-0.5">
-                            <span className="text-amber-400 font-semibold">{post.author.university}</span> • {post.department} • <span className="text-slate-500">{post.timestamp}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 text-xs font-mono">
-                        <span className="px-2 py-0.5 rounded bg-obsidian-950 text-slate-400 border border-white/5">
-                          {post.author.year}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Post Content */}
-                    <div className="p-5 space-y-4">
-                      <div>
-                        <h2 className="text-lg sm:text-xl font-bold text-slate-100 hover:text-cyan-300 transition-colors cursor-pointer">
-                          {post.title}
-                        </h2>
-                        <p className="text-slate-300 text-xs sm:text-sm font-sans mt-2 leading-relaxed">
-                          {post.abstract}
-                        </p>
-                      </div>
-
-                      {/* Hardware Specs Grid */}
-                      <div className="p-3.5 rounded-xl bg-obsidian-950 border border-white/5 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
-                        <div>
-                          <div className="text-[10px] text-slate-500 uppercase">Controller / Core</div>
-                          <div className="text-cyan-300 font-bold truncate mt-0.5" title={post.hardwareSpecs.controller}>
-                            {post.hardwareSpecs.controller}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-500 uppercase">Supply Voltage</div>
-                          <div className="text-amber-300 font-bold mt-0.5">
-                            {post.hardwareSpecs.supplyVoltage}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-500 uppercase">Clock / Freq</div>
-                          <div className="text-purple-300 font-bold mt-0.5">
-                            {post.hardwareSpecs.clockSpeed}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-500 uppercase">Efficiency / Metric</div>
-                          <div className="text-emerald-300 font-bold mt-0.5">
-                            {post.hardwareSpecs.efficiencyRating}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Expandable Code Snippet */}
-                      {post.sampleCodeSnippet && (
-                        <div className="rounded-xl border border-white/10 overflow-hidden font-mono text-xs">
-                          <button
-                            onClick={() => setExpandedCodeId(isExpanded ? null : post.id)}
-                            className="w-full px-4 py-2 bg-obsidian-900 hover:bg-obsidian-850 flex items-center justify-between text-slate-300 transition-colors"
-                          >
-                            <span className="flex items-center gap-2 text-cyan-400 font-semibold text-[11px]">
-                              <Cpu className="w-3.5 h-3.5" />
-                              <span>View {post.sampleCodeSnippet.language} Control Loop Snippet</span>
-                            </span>
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </button>
-
-                          {isExpanded && (
-                            <div className="relative bg-[#06080D] p-3 text-[11px]">
-                              <button
-                                onClick={() => handleCopyCode(post.id, post.sampleCodeSnippet.code)}
-                                className="absolute top-2 right-2 px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-slate-300 flex items-center gap-1 text-[10px]"
-                              >
-                                {copiedCodeId === post.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                                <span>{copiedCodeId === post.id ? 'Copied' : 'Copy'}</span>
-                              </button>
-                              <pre className="text-slate-300 overflow-x-auto leading-relaxed">
-                                {post.sampleCodeSnippet.code}
-                              </pre>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Hashtags */}
-                      <div className="flex flex-wrap gap-1.5 font-mono text-[11px]">
-                        {post.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="px-2 py-0.5 rounded bg-obsidian-950 text-cyan-400/90 border border-cyan-500/20"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Social Interaction Action Bar */}
-                    <div className="px-5 py-3 bg-obsidian-950 border-t border-white/5 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
-                      <div className="flex items-center gap-2">
-                        {/* Peer Endorse */}
-                        <button
-                          onClick={() => handleToggleEndorse(post.id)}
-                          className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all ${
-                            post.hasEndorsed
-                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-md shadow-cyan-500/20'
-                              : 'bg-obsidian-900 text-slate-400 hover:text-slate-200 border border-white/10'
-                          }`}
-                        >
-                          <ThumbsUp className={`w-3.5 h-3.5 ${post.hasEndorsed ? 'fill-current text-cyan-400' : ''}`} />
-                          <span>Endorse ({post.endorsements})</span>
-                        </button>
-
-                        {/* Cite This Idea */}
-                        <button
-                          onClick={() => onOpenCiteModal(post.title, post.author.name)}
-                          className="px-3 py-1.5 rounded-lg bg-obsidian-900 hover:bg-obsidian-850 text-slate-300 border border-white/10 flex items-center gap-1.5 transition-colors"
-                        >
-                          <BookMarked className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Cite ({post.citations})</span>
-                        </button>
-
-                        {/* Fork to Lab */}
-                        <button
-                          onClick={() => handleForkIdea(post)}
-                          className="px-3 py-1.5 rounded-lg bg-obsidian-900 hover:bg-obsidian-850 text-purple-300 border border-white/10 flex items-center gap-1.5 transition-colors"
-                        >
-                          <GitFork className="w-3.5 h-3.5 text-purple-400" />
-                          <span>Fork to Lab ({post.forks})</span>
-                        </button>
-                      </div>
-
-                      {/* Peer Reviews / Comments Toggle */}
-                      <button
-                        onClick={() => setActiveCommentPostId(isCommentsOpen ? null : post.id)}
-                        className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 flex items-center gap-1.5 transition-colors"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Peer Review ({post.comments.length})</span>
-                      </button>
-                    </div>
-
-                    {/* Threaded Peer Review Comments Drawer */}
-                    {isCommentsOpen && (
-                      <div className="p-4 bg-obsidian-900/90 border-t border-white/10 space-y-3 font-mono text-xs">
-                        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-                          <span>Student Technical Peer Reviews</span>
-                          <span className="text-cyan-400">{post.comments.length} Comments</span>
-                        </div>
-
-                        {/* Comments List */}
-                        <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
-                          {post.comments.length === 0 ? (
-                            <div className="text-slate-500 italic text-[11px] py-2">
-                              No peer reviews yet. Leave constructive feedback on schematics or code!
-                            </div>
-                          ) : (
-                            post.comments.map((comment) => (
-                              <div
-                                key={comment.id}
-                                className="p-2.5 rounded-lg bg-obsidian-950 border border-white/5 space-y-1"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-bold text-slate-200">{comment.author.name}</span>
-                                    <span className="text-[10px] text-cyan-400">({comment.author.university})</span>
-                                  </div>
-                                  <span className="text-[10px] text-slate-500">{comment.timestamp}</span>
-                                </div>
-                                <p className="text-slate-300 font-sans text-xs leading-relaxed">
-                                  {comment.content}
-                                </p>
-                              </div>
-                            ))
-                          )}
-                        </div>
-
-                        {/* Add Comment Input */}
-                        <div className="flex gap-2 pt-2 border-t border-white/5">
-                          <input
-                            type="text"
-                            value={newCommentText}
-                            onChange={(e) => setNewCommentText(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleAddComment(post.id);
-                            }}
-                            placeholder="Add your peer review observation, question on topology..."
-                            className="flex-1 px-3 py-2 rounded-lg bg-obsidian-950 border border-white/10 text-slate-200 placeholder:text-slate-600 focus:border-cyan-400 outline-none text-xs"
-                          />
-                          <button
-                            onClick={() => handleAddComment(post.id)}
-                            className="px-3 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-obsidian-950 font-bold flex items-center gap-1 transition-colors"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </article>
-                );
-              })
-            )}
-          </div>
-
-          {/* Right Col: Campus Leaderboard & Activity Telemetry */}
-          <div className="space-y-6">
-            {/* Student Leaderboard */}
-            <div className="p-5 rounded-2xl glass-panel-glow border border-white/10 space-y-4 font-mono text-xs">
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <div className="font-bold text-slate-100 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-cyan-400" />
-                  <span>Top Cited Student Projects</span>
-                </div>
-                <span className="text-[10px] text-cyan-400">IEEE Mesh</span>
-              </div>
-
-              <div className="space-y-3">
-                <div className="p-3 rounded-xl bg-obsidian-950 border border-white/5 flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 font-bold flex items-center justify-center shrink-0 border border-cyan-500/30 text-xs">
-                    1
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-bold text-slate-200 text-xs hover:text-cyan-300 cursor-pointer">
-                      Xilinx UltraScale+ Cholesky Core
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-sans mt-0.5">
-                      Tariq Al-Mansoor • Stanford VLSI
-                    </div>
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-cyan-400">
-                      <span>312 Citations</span>
-                      <span>•</span>
-                      <span>54 Forks</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-xl bg-obsidian-950 border border-white/5 flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-300 font-bold flex items-center justify-center shrink-0 border border-amber-500/30 text-xs">
-                    2
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-bold text-slate-200 text-xs hover:text-cyan-300 cursor-pointer">
-                      2.5 kW GaN Microgrid Inverter
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-sans mt-0.5">
-                      Evelyn Chen • MIT Power Labs
-                    </div>
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-amber-400">
-                      <span>184 Citations</span>
-                      <span>•</span>
-                      <span>37 Forks</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-xl bg-obsidian-950 border border-white/5 flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 font-bold flex items-center justify-center shrink-0 border border-purple-500/30 text-xs">
-                    3
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-bold text-slate-200 text-xs hover:text-cyan-300 cursor-pointer">
-                      Whole-Body Bipedal MPC Gait Solver
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-sans mt-0.5">
-                      Maya Lin • CMU Robotics Institute
-                    </div>
-                    <div className="flex items-center gap-3 mt-1.5 text-[10px] text-purple-400">
-                      <span>96 Citations</span>
-                      <span>•</span>
-                      <span>28 Forks</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Live Campus Telemetry Stream */}
-            <div className="p-5 rounded-2xl glass-panel border border-white/10 space-y-4 font-mono text-xs">
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <div className="font-bold text-slate-100 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-emerald-400" />
-                  <span>Real-Time Campus Activity</span>
-                </div>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              </div>
-
-              <div className="space-y-3 text-[11px]">
-                <div className="flex items-start gap-2.5 text-slate-300">
-                  <span className="text-cyan-400 font-bold">@echen_power</span>
-                  <span className="text-slate-400 font-sans">
-                    updated GaN Inverter to <span className="text-cyan-300 font-mono">Build #409</span> (Edge CDN deployed)
-                  </span>
-                </div>
-
-                <div className="flex items-start gap-2.5 text-slate-300">
-                  <span className="text-amber-400 font-bold">@sjenkins_fsae</span>
-                  <span className="text-slate-400 font-sans">
-                    shared Michigan Formula SAE 48V buck-boost BOM
-                  </span>
-                </div>
-
-                <div className="flex items-start gap-2.5 text-slate-300">
-                  <span className="text-purple-400 font-bold">@tariq_vlsi</span>
-                  <span className="text-slate-400 font-sans">
-                    approved Verilog timing closure for Artix-7
-                  </span>
-                </div>
-
-                <div className="flex items-start gap-2.5 text-slate-300">
-                  <span className="text-emerald-400 font-bold">@arjun_qubit</span>
-                  <span className="text-slate-400 font-sans">
-                    passed cryogenic noise test (0.8 quanta @ 6.5GHz)
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* University Capstone Showcase Banner */}
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-cyan-950/60 to-obsidian-950 border border-cyan-500/30 font-mono text-xs space-y-3">
-              <div className="text-cyan-400 font-bold flex items-center gap-1.5 uppercase tracking-wider">
-                <Award className="w-4 h-4" />
-                <span>Capstone Season 2026</span>
-              </div>
-              <p className="text-slate-400 font-sans text-[11px] leading-relaxed">
-                Publishing your thesis or design project on NexusEng gives you permanent DOI registration, peer review attribution, and automated IEEE export.
-              </p>
-              <button
-                onClick={() => setIsModalOpen(true)}
-                className="w-full py-2 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-300 border border-cyan-500/30 font-bold text-center block transition-colors"
-              >
-                Submit Capstone Draft →
-              </button>
-            </div>
-          </div>
-        </div>
+        <button className="btn btn-primary" onClick={() => asMember(() => setForm({ open: true }))}>
+          <Plus className="h-4 w-4" />
+          Share an idea
+        </button>
       </div>
 
-      {/* Idea Creation Modal */}
-      <CreateIdeaModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        currentUser={currentUser}
-        onSubmitIdea={onAddIdea}
+      <AccountBar campus={campus} onSignIn={() => setSignInOpen(true)} onEditProfile={() => setProfileOpen(true)} />
+
+      {campus.error && !form.open && !profileOpen && (
+        <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 rounded-[3px] bg-danger-wash px-4 py-2.5 text-[15px] text-danger">
+          <span className="flex-1">{campus.error}</span>
+          <button className="btn btn-quiet btn-sm text-danger" onClick={() => { campus.dismissError(); campus.refresh(); }}>Try again</button>
+          <button className="btn btn-quiet btn-sm text-danger" onClick={campus.dismissError}>Dismiss</button>
+        </div>
+      )}
+
+      <div className="mt-8 flex flex-wrap items-center gap-2.5 border-y border-ink py-3">
+        <label className="relative min-w-[14rem] flex-1">
+          <span className="sr-only">Search ideas</span>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" />
+          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search projects, people, universities" className="field pl-9" />
+        </label>
+        <label>
+          <span className="sr-only">Department</span>
+          <select value={dept} onChange={(e) => setDept(e.target.value)} className="field w-auto">
+            {departments.map((d) => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-2 grid gap-12 lg:grid-cols-[minmax(0,1fr)_16rem]">
+        <div aria-busy={campus.loading}>
+          {campus.loading ? (
+            <p className="py-10 text-ink-3">Loading ideas...</p>
+          ) : visible.length === 0 ? (
+            <div className="mt-6">
+              {ideas.length ? (
+                <EmptyState title="No ideas match your search">
+                  <button className="btn btn-outline btn-sm" onClick={() => { setQuery(''); setDept('All'); }}>Clear filters</button>
+                </EmptyState>
+              ) : (
+                <EmptyState title="No ideas shared yet">
+                  <p>Be the first: share a prototype, a half-finished design or a question.</p>
+                  <button className="btn btn-primary btn-sm mt-4" onClick={() => asMember(() => setForm({ open: true }))}>Share the first idea</button>
+                </EmptyState>
+              )}
+            </div>
+          ) : (
+            visible.map((idea) => (
+              <IdeaEntry
+                key={idea.id}
+                idea={idea}
+                campus={campus}
+                own={idea.author.id === session?.user.id}
+                asMember={asMember}
+                onEdit={() => setForm({ open: true, idea })}
+                onDelete={() => deleteIdea(idea)}
+                onCite={() => onCite(idea)}
+                onStartArticle={() => onStartArticle(idea)}
+              />
+            ))
+          )}
+        </div>
+
+        {top.length > 0 && (
+          <aside className="lg:pt-6">
+            <h2 className="text-[15px] font-semibold">Most endorsed</h2>
+            <ol className="mt-3 border-t border-ink">
+              {top.map((i) => (
+                <li key={i.id} className="border-b border-ink-rule py-3">
+                  <button
+                    onClick={() => document.getElementById(i.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                    className="text-left font-serif text-[16.5px] font-semibold leading-snug hover:text-accent-ink"
+                  >
+                    {i.title}
+                  </button>
+                  <div className="mt-1 text-[14px] text-ink-3">
+                    {i.author.name}, {i.endorsements} {i.endorsements === 1 ? 'endorsement' : 'endorsements'}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </aside>
+        )}
+      </div>
+
+      <IdeaFormModal
+        open={form.open}
+        idea={form.idea}
+        error={campus.error}
+        defaultDepartment={profile?.department}
+        onClose={() => { setForm({ open: false }); campus.dismissError(); }}
+        onSubmit={(input) => (form.idea ? campus.updateIdea(form.idea.id, input) : campus.createIdea(input))}
+      />
+      <SignInModal open={signInOpen} onClose={() => setSignInOpen(false)} onSignIn={campus.signIn} />
+      <ProfileModal
+        open={profileOpen}
+        onClose={() => { setProfileOpen(false); campus.dismissError(); }}
+        profile={profile}
+        email={session?.user.email ?? ''}
+        error={campus.error}
+        onSave={campus.saveProfile}
       />
     </div>
   );
-};
+}
+
+function AccountBar({ campus, onSignIn, onEditProfile }: { campus: Campus; onSignIn: () => void; onEditProfile: () => void }) {
+  const { session, profile } = campus;
+  return (
+    <div className="mt-8 flex min-h-[3.5rem] flex-wrap items-center gap-3 rounded-[3px] border border-ink-rule bg-white/50 px-4 py-2.5 text-[15px]" aria-live="polite">
+      {!campus.authReady || (session && profile === undefined) ? (
+        <span className="text-ink-3">Checking your sign-in...</span>
+      ) : session && profile ? (
+        <>
+          <Avatar name={profile.name} size={32} />
+          <Byline author={profile} />
+          <span className="flex-1" />
+          <button className="btn btn-quiet btn-sm" onClick={onEditProfile}><UserRound className="h-4 w-4" />Edit profile</button>
+          <button className="btn btn-quiet btn-sm" onClick={campus.signOut}><LogOut className="h-4 w-4" />Sign out</button>
+        </>
+      ) : session ? (
+        <>
+          <span className="text-ink-2">Signed in as <strong className="font-semibold text-ink">{session.user.email}</strong>. Add your name and university to start posting.</span>
+          <span className="flex-1" />
+          <button className="btn btn-primary btn-sm" onClick={onEditProfile}>Finish profile</button>
+          <button className="btn btn-quiet btn-sm" onClick={campus.signOut}><LogOut className="h-4 w-4" />Sign out</button>
+        </>
+      ) : (
+        <>
+          <span className="text-ink-2">Anyone can read. Sign in with your university email to share ideas, comment and endorse.</span>
+          <span className="flex-1" />
+          <button className="btn btn-primary btn-sm" onClick={onSignIn}>Sign in</button>
+        </>
+      )}
+    </div>
+  );
+}
+
+interface EntryProps {
+  idea: StudentIdeaPost;
+  campus: Campus;
+  own: boolean;
+  asMember: (action: () => void) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onCite: () => void;
+  onStartArticle: () => void;
+}
+
+function IdeaEntry({ idea, campus, own, asMember, onEdit, onDelete, onCite, onStartArticle }: EntryProps) {
+  const [discussionOpen, setDiscussionOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const userId = campus.session?.user.id;
+  const specs = [
+    ['Controller', idea.hardwareSpecs.controller],
+    ['Supply', idea.hardwareSpecs.supplyVoltage],
+    ['Clock', idea.hardwareSpecs.clockSpeed],
+    ['Result', idea.hardwareSpecs.efficiencyRating],
+  ].filter(([, v]) => v);
+  const code = idea.sampleCodeSnippet.code;
+
+  // Disables the button while a write is in flight so a double click cannot submit twice.
+  const pending = async (op: () => Promise<boolean>) => {
+    setBusy(true);
+    const ok = await op();
+    setBusy(false);
+    return ok;
+  };
+  const post = (e: FormEvent) => {
+    e.preventDefault();
+    if (!draft.trim()) return;
+    asMember(async () => {
+      if (await pending(() => campus.addComment(idea.id, draft.trim()))) setDraft('');
+    });
+  };
+  const copy = async () => {
+    if (await copyText(code)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }
+  };
+
+  return (
+    <article id={idea.id} className="scroll-mt-20 border-b border-ink-rule py-8">
+      <div className="flex items-center gap-3 text-[15px] leading-tight">
+        <Avatar name={idea.author.name} />
+        <Byline author={idea.author} />
+        <time dateTime={idea.createdAt} className="ml-auto shrink-0 self-start text-[14px] text-ink-3">{relativeTime(idea.createdAt)}</time>
+      </div>
+
+      <h2 className="mt-4 font-serif text-[26px] font-semibold leading-tight tracking-[-0.01em]">{idea.title}</h2>
+      {idea.department && <p className="mt-1 text-[14.5px] text-ink-3">{idea.department}</p>}
+      <p className="mt-2 max-w-[44rem] whitespace-pre-line font-serif text-[17.5px] leading-relaxed text-ink-2">{idea.abstract}</p>
+
+      {specs.length > 0 && (
+        <dl className="mt-5 grid grid-cols-2 gap-px border border-ink-rule bg-ink-rule sm:grid-cols-4">
+          {specs.map(([k, v]) => (
+            <div key={k} className="bg-paper px-3 py-2">
+              <dt className="text-[13px] text-ink-3">{k}</dt>
+              <dd className="mt-0.5 text-[15px] font-medium leading-snug">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      {code && (
+        <details className="mt-4 rounded-[3px] border border-ink-rule">
+          <summary className="cursor-pointer select-none px-3 py-2 text-[15px] font-medium text-ink-2 hover:text-ink">
+            {idea.sampleCodeSnippet.language} snippet
+          </summary>
+          <div className="relative border-t border-ink-rule">
+            <button onClick={copy} className="btn btn-outline btn-sm absolute right-2 top-2">
+              {copied ? <Check className="h-4 w-4 text-ok" /> : <Copy className="h-4 w-4" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            <pre className="overflow-x-auto bg-paper-deep/60 p-4 pr-24 font-mono text-[13px] leading-relaxed"><code>{code}</code></pre>
+          </div>
+        </details>
+      )}
+
+      {idea.tags.length > 0 && (
+        <ul className="mt-4 flex flex-wrap gap-1.5">
+          {idea.tags.map((t) => <li key={t} className="chip">{t}</li>)}
+        </ul>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center gap-1.5">
+        <button
+          className="btn btn-outline btn-sm"
+          aria-pressed={idea.hasEndorsed}
+          disabled={busy}
+          onClick={() => asMember(() => pending(() => campus.toggleEndorse(idea)))}
+        >
+          <ThumbsUp className="h-4 w-4" />
+          {idea.hasEndorsed ? 'Endorsed' : 'Endorse'}
+          <span className="tabular-nums text-ink-3">{idea.endorsements}</span>
+        </button>
+        <button className="btn btn-outline btn-sm" aria-expanded={discussionOpen} onClick={() => setDiscussionOpen(!discussionOpen)}>
+          <MessageSquare className="h-4 w-4" />
+          Discussion
+          <span className="tabular-nums text-ink-3">{idea.comments.length}</span>
+        </button>
+        <button className="btn btn-quiet btn-sm" onClick={onCite}>
+          <BookMarked className="h-4 w-4" />
+          Cite
+        </button>
+        <button className="btn btn-quiet btn-sm" onClick={onStartArticle} title="Create a draft article from this idea">
+          <FilePlus2 className="h-4 w-4" />
+          Start article
+        </button>
+        {own && (
+          <span className="ml-auto flex gap-1">
+            <button className="btn btn-quiet btn-sm" onClick={onEdit}><PenLine className="h-4 w-4" />Edit</button>
+            <button className="btn btn-danger btn-sm" onClick={onDelete}><Trash2 className="h-4 w-4" />Delete</button>
+          </span>
+        )}
+      </div>
+
+      {discussionOpen && (
+        <section aria-label={`Discussion on ${idea.title}`} className="mt-4 border-l-2 border-ink-rule pl-4">
+          {idea.comments.length === 0 && <p className="py-1 text-[15px] text-ink-3">No questions yet. Ask about the topology, layout or test setup.</p>}
+          <ul className="space-y-4">
+            {idea.comments.map((c) => (
+              <li key={c.id}>
+                <div className="flex items-start gap-2 text-[14.5px] leading-tight">
+                  <Byline author={c.author} />
+                  <span className="shrink-0 text-ink-3">{relativeTime(c.createdAt)}</span>
+                  {c.author.id === userId && (
+                    <button
+                      className="ml-auto shrink-0 text-[14px] text-danger hover:underline"
+                      onClick={() => campus.deleteComment(c.id)}
+                      aria-label="Delete your comment"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1 whitespace-pre-line font-serif text-[16.5px] leading-relaxed">{c.content}</p>
+              </li>
+            ))}
+          </ul>
+          {campus.session && campus.profile ? (
+            <form onSubmit={post} className="mt-4 flex gap-2">
+              <label className="sr-only" htmlFor={`reply-${idea.id}`}>Add a comment</label>
+              <input
+                id={`reply-${idea.id}`}
+                value={draft}
+                maxLength={2000}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Ask a question or share a result"
+                className="field"
+              />
+              <button type="submit" className="btn btn-primary" disabled={!draft.trim() || busy}>Post</button>
+            </form>
+          ) : (
+            <button className="btn btn-outline btn-sm mt-4" onClick={() => asMember(() => undefined)}>
+              Sign in to join the discussion
+            </button>
+          )}
+        </section>
+      )}
+    </article>
+  );
+}
